@@ -37,6 +37,18 @@ def _connect(path: str):
         conn.close()
 
 
+def get_all_listings(path: str, limit: int = 300) -> list[dict]:
+    """Devolve os anúncios salvos, mais novos primeiro (por first_seen)."""
+    with _connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT uid, site, title, url, price, area, first_seen, last_seen, last_price
+               FROM listings ORDER BY first_seen DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def check_and_record(path: str, listing: Listing) -> dict:
     """
     Registra o listing e devolve o que mudou:

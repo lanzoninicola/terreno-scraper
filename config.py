@@ -18,7 +18,13 @@ CRITERIA = {
 # ---------------------------------------------------------------------------
 WHATSAPP_API_URL = "https://www.amodomio.com.br/api/messages/text"
 WHATSAPP_API_KEY = os.environ.get("AMODOMIO_API_KEY", "")
-WHATSAPP_TARGET_PHONE = os.environ.get("TARGET_PHONE", "")  # ex: 5546999999999
+WHATSAPP_TARGET_PHONE = os.environ.get("TARGET_PHONE", "")  # ex: 5546999999999 (aceita várias, separadas por vírgula)
+WHATSAPP_TARGET_PHONES = [
+    p.strip() for p in WHATSAPP_TARGET_PHONE.split(",") if p.strip()
+]
+
+# URL pública e fixa do relatório (servida pelo serviço "web" deste mesmo projeto)
+REPORT_URL = os.environ.get("REPORT_URL", "https://terrenos.amodomio.com.br/")
 
 # ---------------------------------------------------------------------------
 # Intervalo entre execuções (em minutos)

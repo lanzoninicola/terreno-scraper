@@ -5,7 +5,7 @@ from config import SITES, CRITERIA, DB_PATH
 from scraper.base import fetch_html, Listing
 from scraper.sites import get_parser
 from scraper.storage import init_db, check_and_record
-from scraper.notifier import send_whatsapp, format_listing_message
+from scraper.notifier import notify_run_summary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,10 +18,6 @@ def passes_price_filter(listing: Listing) -> bool:
     if listing.price is None:
         return False
     return CRITERIA["price_min"] <= listing.price <= CRITERIA["price_max"]
-
-
-def is_priority(listing: Listing) -> bool:
-    return listing.area is not None and listing.area >= CRITERIA["area_priority_min"]
 
 
 def run_once():
@@ -47,19 +43,12 @@ def run_once():
                     continue
 
                 result = check_and_record(DB_PATH, listing)
-                priority = is_priority(listing)
 
                 if result["is_new"]:
                     total_new += 1
-                    msg = format_listing_message(listing, priority)
-                    send_whatsapp(msg)
                     logger.info("  NOVO: %s - R$ %.0f", listing.title, listing.price)
                 elif result["price_changed"]:
                     total_price_changed += 1
-                    msg = format_listing_message(
-                        listing, priority, price_changed=True, old_price=result["old_price"]
-                    )
-                    send_whatsapp(msg)
                     logger.info(
                         "  PREÇO MUDOU: %s - R$ %.0f -> R$ %.0f",
                         listing.title, result["old_price"], listing.price,
@@ -69,6 +58,9 @@ def run_once():
             logger.exception("Erro ao processar %s: %s", name, e)
 
         time.sleep(2)  # respiro entre sites
+
+    if total_new or total_price_changed:
+        notify_run_summary(total_new, total_price_changed)
 
     logger.info(
         "Execução concluída. %d novos anúncios, %d mudanças de preço.",
