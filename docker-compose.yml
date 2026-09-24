@@ -1,0 +1,14 @@
+services:
+  terreno-scraper:
+    build: .
+    restart: unless-stopped
+    environment:
+      AMODOMIO_API_KEY: ${AMODOMIO_API_KEY}
+      TARGET_PHONE: ${TARGET_PHONE}
+      SCRAPE_INTERVAL_MINUTES: "240"
+      DB_PATH: /data/listings.db
+    volumes:
+      - terreno_data:/data
+
+volumes:
+  terreno_data:
