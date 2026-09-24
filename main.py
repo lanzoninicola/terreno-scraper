@@ -4,7 +4,7 @@ import time
 from config import SITES, CRITERIA, DB_PATH
 from scraper.base import fetch_html, Listing
 from scraper.sites import get_parser
-from scraper.storage import init_db, check_and_record
+from scraper.storage import init_db, check_and_record, get_excluded_bairros
 from scraper.notifier import notify_run_summary
 
 logging.basicConfig(
@@ -20,8 +20,9 @@ def passes_price_filter(listing: Listing) -> bool:
     return CRITERIA["price_min"] <= listing.price <= CRITERIA["price_max"]
 
 
-def run_once():
+def run_once(notify_always: bool = False):
     init_db(DB_PATH)
+    excluded_bairros = {b.lower() for b in get_excluded_bairros(DB_PATH)}
     total_new = 0
     total_price_changed = 0
 
@@ -41,6 +42,8 @@ def run_once():
             for listing in listings:
                 if not passes_price_filter(listing):
                     continue
+                if listing.location and listing.location.lower() in excluded_bairros:
+                    continue
 
                 result = check_and_record(DB_PATH, listing)
 
@@ -59,8 +62,8 @@ def run_once():
 
         time.sleep(2)  # respiro entre sites
 
-    if total_new or total_price_changed:
-        notify_run_summary(total_new, total_price_changed)
+    if total_new or total_price_changed or notify_always:
+        notify_run_summary(total_new, total_price_changed, forced=notify_always)
 
     logger.info(
         "Execução concluída. %d novos anúncios, %d mudanças de preço.",

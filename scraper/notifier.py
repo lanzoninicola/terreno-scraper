@@ -33,10 +33,15 @@ def send_whatsapp(message: str) -> bool:
     return all_ok
 
 
-def notify_run_summary(new_count: int, changed_count: int) -> bool:
-    """Uma única mensagem por execução, só quando há algo novo, com o link fixo do relatório."""
-    if new_count == 0 and changed_count == 0:
+def notify_run_summary(new_count: int, changed_count: int, forced: bool = False) -> bool:
+    """Uma única mensagem por execução — normalmente só quando há algo novo, com o
+    link fixo do relatório. Se forced=True (busca manual), manda mesmo sem novidade."""
+    if new_count == 0 and changed_count == 0 and not forced:
         return False
+
+    if new_count == 0 and changed_count == 0:
+        msg = f"🔄 Busca manual concluída — nenhuma novidade agora.\n{REPORT_URL}"
+        return send_whatsapp(msg)
 
     parts = []
     if new_count:
@@ -44,5 +49,6 @@ def notify_run_summary(new_count: int, changed_count: int) -> bool:
     if changed_count:
         parts.append(f"{changed_count} com preço alterado")
 
-    msg = f"🏗️ Terrenos: {' e '.join(parts)}\n{REPORT_URL}"
+    prefix = "🔄" if forced else "🏗️"
+    msg = f"{prefix} Terrenos: {' e '.join(parts)}\n{REPORT_URL}"
     return send_whatsapp(msg)

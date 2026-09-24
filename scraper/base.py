@@ -17,6 +17,10 @@ USER_AGENT = (
 
 PRICE_RE = re.compile(r"R\$\s*([\d\.]{2,})")
 AREA_RE = re.compile(r"([\d\.]+(?:,\d+)?)\s*m²")
+# "Pato Branco, Aeroporto" ou "Aeroporto, Pato Branco" — pega o bairro nos dois formatos
+LOCATION_RE = re.compile(
+    r"(?:Pato Branco,\s*([A-ZÀ-Ú][\wÀ-ú\s]{2,30})|([A-ZÀ-Ú][\wÀ-ú\s]{2,30}),\s*Pato Branco)"
+)
 
 
 @dataclass
@@ -27,6 +31,7 @@ class Listing:
     price: float | None = None
     area: float | None = None
     location: str = ""
+    description: str = ""
     raw_text: str = field(default="", repr=False)
 
     @property
@@ -55,6 +60,24 @@ def parse_area(text: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def parse_location(text: str) -> str:
+    m = LOCATION_RE.search(text or "")
+    if not m:
+        return ""
+    bairro = (m.group(1) or m.group(2) or "").strip(" ,.-")
+    return bairro
+
+
+def make_description(block_text: str, title: str) -> str:
+    """Tira preço/área/título do texto do bloco e devolve um resumo curto."""
+    text = PRICE_RE.sub(" ", block_text or "")
+    text = AREA_RE.sub(" ", text)
+    if title:
+        text = text.replace(title, " ")
+    text = re.sub(r"\s+", " ", text).strip(" -,.")
+    return text[:160]
 
 
 def fetch_html(url: str, wait_ms: int = 2500) -> str:
@@ -130,6 +153,8 @@ def generic_extract(html: str, base_url: str, site_name: str) -> list[Listing]:
                 url=href,
                 price=price,
                 area=area,
+                location=parse_location(block_text),
+                description=make_description(block_text, title),
                 raw_text=block_text[:500],
             )
         )

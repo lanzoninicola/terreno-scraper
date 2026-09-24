@@ -7,7 +7,7 @@ O storage.py trata isso comparando o preço salvo com o preço atual.
 """
 from bs4 import BeautifulSoup
 
-from ..base import Listing, parse_price, parse_area
+from ..base import Listing, parse_price, parse_area, parse_location, make_description
 
 
 def parse(html: str, base_url: str, site_name: str) -> list[Listing]:
@@ -30,6 +30,8 @@ def parse(html: str, base_url: str, site_name: str) -> list[Listing]:
             url=base_url,
             price=price,
             area=area,
+            location=parse_location(text),
+            description=make_description(text, title),
             raw_text=text[:500],
         )
     ]
