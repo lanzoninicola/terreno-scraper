@@ -6,7 +6,7 @@ escreve.
 """
 import html
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, Response, request, jsonify
 
@@ -44,10 +44,14 @@ def fmt_area(v):
     return f"{v:,.0f} m²".replace(",", ".")
 
 
+# horário de Brasília/São Paulo (UTC-3, sem horário de verão desde 2019)
+TZ_BR = timezone(timedelta(hours=-3))
+
+
 def fmt_date(ts):
     if not ts:
         return ""
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%d/%m %H:%M")
+    return datetime.fromtimestamp(ts, tz=TZ_BR).strftime("%d/%m %H:%M")
 
 
 CARD_TMPL = """
@@ -149,19 +153,19 @@ PAGE_TMPL = """<!doctype html>
     color: var(--text);
     border-radius: 8px;
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: 15px;
     flex: 1;
     min-width: 90px;
   }}
-  .toggle-row {{ display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }}
+  .toggle-row {{ display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); margin-bottom: 6px; }}
   main {{ padding: 12px 16px 40px; max-width: 720px; margin: 0 auto; }}
   .group-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
   details.group-acc {{ margin-bottom: 14px; }}
   details.group-acc summary {{
-    color: var(--muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
     padding: 6px 0 8px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 10px;
@@ -324,13 +328,13 @@ PAGE_TMPL = """<!doctype html>
     <div class="filters">
       <input id="f-min" type="number" placeholder="Preço mín." inputmode="numeric">
       <input id="f-max" type="number" placeholder="Preço máx." inputmode="numeric">
-      <select id="f-bairro"><option value="">Todos os bairros</option>{bairro_options}</select>
+      <select id="f-bairro" style="flex-basis: 100%;"><option value="">Todos os bairros</option>{bairro_options}</select>
     </div>
     <div class="filters">
-      <select id="f-group">
+      <select id="f-group" autocomplete="off">
         <option value="none">Não agrupar</option>
         <option value="bairro">Agrupar por bairro</option>
-        <option value="price">Agrupar por faixa de preço</option>
+        <option value="price" selected>Agrupar por faixa de preço</option>
       </select>
     </div>
     <label class="toggle-row">
@@ -419,6 +423,9 @@ PAGE_TMPL = """<!doctype html>
     return fmt(lower) + ' – ' + fmt(upper);
   }}
 
+  // acordeões começam fechados; lembra os abertos pra não fecharem a cada applyFilters()
+  const openGroups = new Set();
+
   function regroup(visibleCards) {{
     cardsContainer.innerHTML = '';
     const mode = fGroup.value;
@@ -447,7 +454,10 @@ PAGE_TMPL = """<!doctype html>
     sortedKeys.forEach(k => {{
       const det = document.createElement('details');
       det.className = 'group-acc';
-      det.open = true;
+      det.open = openGroups.has(mode + ':' + k);
+      det.addEventListener('toggle', () => {{
+        if (det.open) openGroups.add(mode + ':' + k); else openGroups.delete(mode + ':' + k);
+      }});
       const sum = document.createElement('summary');
       sum.textContent = k + ' (' + groups.get(k).length + ')';
       det.appendChild(sum);
@@ -780,7 +790,7 @@ def render_page(view: str = "all") -> str:
         price_max=f"{CRITERIA['price_max']:,.0f}".replace(",", "."),
         area_priority=f"{CRITERIA['area_priority_min']:,.0f}".replace(",", "."),
         count=len(visible_listings),
-        now=datetime.now(timezone.utc).strftime("%d/%m %H:%M UTC"),
+        now=datetime.now(TZ_BR).strftime("%d/%m %H:%M"),
         cards=cards_html,
         bairro_options=bairro_options,
         excluded_chips=excluded_chips,

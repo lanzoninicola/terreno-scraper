@@ -48,8 +48,10 @@ SITES = [
     {"name": "ImovelWeb - Pato Branco", "url": "https://www.imovelweb.com.br/terrenos-venda-pato-branco-pr.html", "platform": "imovelweb"},
     {"name": "ImovelWeb - São Luiz", "url": "https://www.imovelweb.com.br/terrenos-venda-sao-luiz-pato-branco.html", "platform": "imovelweb"},
     {"name": "Zap Imóveis", "url": "https://www.zapimoveis.com.br/venda/terrenos-lotes-condominios/pr+pato-branco/", "platform": "zap"},
-    {"name": "Chaves na Mão", "url": "https://www.chavesnamao.com.br/terrenos-a-venda/pr-pato-branco/", "platform": "chavesnamao"},
-    {"name": "Chaves na Mão - Aeroporto", "url": "https://www.chavesnamao.com.br/terrenos-a-venda/pr-pato-branco/aeroporto/", "platform": "chavesnamao"},
+    # filtro de preço direto na URL (~200 resultados em vez de ~480), paginado de 15 em 15
+    {"name": "Chaves na Mão",
+     "url": f"https://www.chavesnamao.com.br/terrenos-a-venda/pr-pato-branco/?filtro=pmin:{CRITERIA['price_min']},pmax:{CRITERIA['price_max']}",
+     "platform": "chavesnamao", "paginate": {"param": "pg", "max_pages": 25}},
     {"name": "Conceito PB - Terreno", "url": "https://www.conceitopbimoveis.com.br/filtro/list/todos/terreno/todas/todos---todos/0-3000000/todos/todos/1", "platform": "generic"},
     {"name": "Conceito PB - Terreno Comercial", "url": "https://www.conceitopbimoveis.com.br/filtro/list/todos/terreno-comercial/todas/todos---todos/0-3000000/todos/todos/1", "platform": "generic"},
     {"name": "Rafa Imóveis", "url": "https://rafaimoveis.com/venda/vendas-terrenos", "platform": "generic"},

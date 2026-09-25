@@ -20,6 +20,34 @@ def passes_price_filter(listing: Listing) -> bool:
     return CRITERIA["price_min"] <= listing.price <= CRITERIA["price_max"]
 
 
+def fetch_site_listings(site: dict) -> list[Listing]:
+    """Baixa e parseia um site. Com "paginate" na config, segue ?<param>=2,3,...
+    até max_pages ou até uma página não trazer nenhum anúncio novo (alguns sites
+    repetem a última página quando o número passa do fim)."""
+    name, url, platform = site["name"], site["url"], site["platform"]
+    parser = get_parser(platform)
+    paginate = site.get("paginate")
+    max_pages = paginate["max_pages"] if paginate else 1
+
+    listings: list[Listing] = []
+    seen = set()
+    for page in range(1, max_pages + 1):
+        page_url = url
+        if page > 1:
+            sep = "&" if "?" in url else "?"
+            page_url = f"{url}{sep}{paginate['param']}={page}"
+        html = fetch_html(page_url)
+        if not html:
+            logger.warning("HTML vazio para %s (página %d)", name, page)
+            break
+        fresh = [l for l in parser(html, url, name) if l.uid not in seen]
+        if not fresh:
+            break
+        seen.update(l.uid for l in fresh)
+        listings.extend(fresh)
+    return listings
+
+
 def run_once(notify_always: bool = False):
     init_db(DB_PATH)
     excluded_bairros = {b.lower() for b in get_excluded_bairros(DB_PATH)}
@@ -28,16 +56,10 @@ def run_once(notify_always: bool = False):
     new_uids = []
 
     for site in SITES:
-        name, url, platform = site["name"], site["url"], site["platform"]
+        name, url = site["name"], site["url"]
         logger.info("Verificando: %s (%s)", name, url)
         try:
-            html = fetch_html(url)
-            if not html:
-                logger.warning("HTML vazio para %s — pulando", name)
-                continue
-
-            parser = get_parser(platform)
-            listings = parser(html, url, name)
+            listings = fetch_site_listings(site)
             logger.info("  %d anúncios extraídos", len(listings))
 
             for listing in listings:

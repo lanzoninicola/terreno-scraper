@@ -1,5 +1,5 @@
 """
-Parser genérico — usado como está para: generic, imovelweb, zap, chavesnamao,
+Parser genérico — usado como está para: generic, imovelweb, zap,
 imb, trovit. Todos esses sites seguem o padrão comum de cards com preço "R$"
 e metragem "m²" perto de um link de anúncio, então a heurística de base.py
 cobre bem sem precisar de seletor CSS específico por site.
