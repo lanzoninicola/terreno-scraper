@@ -4,7 +4,7 @@ import time
 from config import SITES, CRITERIA, DB_PATH
 from scraper.base import fetch_html, Listing
 from scraper.sites import get_parser
-from scraper.storage import init_db, check_and_record, get_excluded_bairros
+from scraper.storage import init_db, check_and_record, get_excluded_bairros, set_last_new_uids
 from scraper.notifier import notify_run_summary
 
 logging.basicConfig(
@@ -25,6 +25,7 @@ def run_once(notify_always: bool = False):
     excluded_bairros = {b.lower() for b in get_excluded_bairros(DB_PATH)}
     total_new = 0
     total_price_changed = 0
+    new_uids = []
 
     for site in SITES:
         name, url, platform = site["name"], site["url"], site["platform"]
@@ -49,6 +50,7 @@ def run_once(notify_always: bool = False):
 
                 if result["is_new"]:
                     total_new += 1
+                    new_uids.append(listing.uid)
                     logger.info("  NOVO: %s - R$ %.0f", listing.title, listing.price)
                 elif result["price_changed"]:
                     total_price_changed += 1
@@ -61,6 +63,8 @@ def run_once(notify_always: bool = False):
             logger.exception("Erro ao processar %s: %s", name, e)
 
         time.sleep(2)  # respiro entre sites
+
+    set_last_new_uids(DB_PATH, new_uids)
 
     if total_new or total_price_changed or notify_always:
         notify_run_summary(total_new, total_price_changed, forced=notify_always)

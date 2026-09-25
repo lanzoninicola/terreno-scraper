@@ -58,17 +58,39 @@ def _connect(path: str):
         conn.close()
 
 
-def get_all_listings(path: str, limit: int = 300) -> list[dict]:
+def get_all_listings(path: str, limit: int = 300, favorites_only: bool = False) -> list[dict]:
     """Devolve os anúncios salvos, mais novos primeiro (por first_seen)."""
     with _connect(path) as conn:
         conn.row_factory = sqlite3.Row
+        where = "WHERE favorite = 1" if favorites_only else ""
         rows = conn.execute(
-            """SELECT uid, site, title, url, price, area, location, description,
-                      status, favorite, first_seen, last_seen, last_price
-               FROM listings ORDER BY first_seen DESC LIMIT ?""",
+            f"""SELECT uid, site, title, url, price, area, location, description,
+                       status, favorite, first_seen, last_seen, last_price
+                FROM listings {where} ORDER BY first_seen DESC LIMIT ?""",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_last_new_uids(path: str) -> list[str]:
+    """uids que entraram como 'novo' na última execução do scraper (pra marcar o badge NOVO)."""
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'last_new_uids'"
+        ).fetchone()
+        if not row or not row[0]:
+            return []
+        return json.loads(row[0])
+
+
+def set_last_new_uids(path: str, uids: list[str]):
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('last_new_uids', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(uids),),
+        )
+        conn.commit()
 
 
 def set_favorite(path: str, uid: str, favorite: bool) -> bool:
