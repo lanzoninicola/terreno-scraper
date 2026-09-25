@@ -59,7 +59,8 @@ CARD_TMPL = """
      data-date-full="{date_attr}">
   {new_badge}
   <div class="card-price">{price_short}</div>
-  <div class="card-sub">{area} · {date}</div>
+  <div class="card-sub"><span class="card-area">{area}</span> · {date}</div>
+  <div class="card-bairro">{bairro}</div>
   <div class="actions">
     <button class="icon-btn btn-fav" data-uid="{uid_attr}" title="Favoritar">☆</button>
     <button class="icon-btn btn-seen" data-uid="{uid_attr}" title="Já visto">👁</button>
@@ -190,7 +191,10 @@ PAGE_TMPL = """<!doctype html>
     letter-spacing: 0.03em;
   }}
   .card-price {{ font-size: 20px; font-weight: 700; margin-bottom: 4px; }}
-  .card-sub {{ font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.3; }}
+  .card-sub {{ font-size: 12px; color: var(--muted); margin-bottom: 2px; line-height: 1.3; }}
+  .card-area {{ font-size: 15px; font-weight: 600; color: var(--text); }}
+  .card-bairro {{ font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.3; min-height: 1.3em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
   .actions {{ display: flex; gap: 6px; }}
   .icon-btn {{
     flex: 1;
@@ -250,6 +254,8 @@ PAGE_TMPL = """<!doctype html>
   #modal .modal-top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }}
   #modal .modal-close {{ background: none; border: none; color: var(--muted); font-size: 20px; padding: 0 4px; }}
   #modal .modal-site {{ color: var(--muted); font-size: 12px; margin-bottom: 2px; }}
+  #modal .modal-source {{ color: var(--muted); font-size: 13px; margin-bottom: 12px; }}
+  #modal .modal-source strong {{ color: var(--text); font-weight: 600; }}
   #modal .modal-title {{ font-size: 17px; font-weight: 600; margin-bottom: 10px; line-height: 1.35; }}
   #modal .modal-meta {{ display: flex; gap: 16px; font-size: 15px; margin-bottom: 12px; }}
   #modal .modal-meta .price {{ font-weight: 700; }}
@@ -340,6 +346,7 @@ PAGE_TMPL = """<!doctype html>
       <span class="price" id="modal-price"></span>
       <span id="modal-area"></span>
     </div>
+    <div class="modal-source">Fonte: <strong id="modal-source"></strong></div>
     <div class="modal-desc" id="modal-desc"></div>
     <a class="modal-visit-btn" id="modal-visit" target="_blank" rel="noopener">Ver anúncio no site →</a>
     <div class="modal-actions">
@@ -525,6 +532,7 @@ PAGE_TMPL = """<!doctype html>
   // ---- modal ----
   const modalOverlay = document.getElementById('modal-overlay');
   const modalSite = document.getElementById('modal-site');
+  const modalSource = document.getElementById('modal-source');
   const modalTitle = document.getElementById('modal-title');
   const modalPrice = document.getElementById('modal-price');
   const modalArea = document.getElementById('modal-area');
@@ -539,7 +547,10 @@ PAGE_TMPL = """<!doctype html>
   function openModal(card) {{
     modalCard = card;
     const bairro = card.dataset.bairro || '';
-    modalSite.textContent = card.dataset.site + (bairro ? ' · ' + bairro : '');
+    modalSite.textContent = bairro;
+    let host = '';
+    try {{ host = new URL(card.dataset.url).hostname.replace(/^www\\./, ''); }} catch (e) {{}}
+    modalSource.textContent = card.dataset.site + (host ? ' (' + host + ')' : '');
     modalTitle.textContent = card.dataset.title;
     modalPrice.textContent = card.dataset.priceFull;
     modalArea.textContent = card.dataset.areaFull + ' · ' + card.dataset.dateFull;
@@ -666,6 +677,7 @@ def render_page(favorites_only: bool) -> str:
                     uid_attr=esc(l["uid"]),
                     price_raw=price_val or 0,
                     bairro_attr=esc(bairro),
+                    bairro=esc(bairro),
                     status_attr=esc(l.get("status") or ""),
                     favorite_attr=1 if l.get("favorite") else 0,
                     new_attr=1 if is_new else 0,
