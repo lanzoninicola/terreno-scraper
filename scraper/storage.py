@@ -39,7 +39,7 @@ def init_db(path: str):
     # migração leve: adiciona colunas novas em bancos criados antes desta versão
     for col, coltype in [
         ("location", "TEXT"), ("description", "TEXT"), ("status", "TEXT"),
-        ("favorite", "INTEGER DEFAULT 0"),
+        ("favorite", "INTEGER DEFAULT 0"), ("clicked_at", "REAL"),
     ]:
         try:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {coltype}")
@@ -58,15 +58,19 @@ def _connect(path: str):
         conn.close()
 
 
-def get_all_listings(path: str, limit: int = 300, favorites_only: bool = False) -> list[dict]:
-    """Devolve os anúncios salvos, mais novos primeiro (por first_seen)."""
+def get_all_listings(path: str, limit: int = 300, view: str = "all") -> list[dict]:
+    """Devolve os anúncios salvos. view: 'all' e 'favorites' ordenam por first_seen;
+    'clicked' traz só os que tiveram o link aberto, ordenados pelo clique mais recente."""
     with _connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        where = "WHERE favorite = 1" if favorites_only else ""
+        where, order = {
+            "favorites": ("WHERE favorite = 1", "first_seen DESC"),
+            "clicked": ("WHERE clicked_at IS NOT NULL", "clicked_at DESC"),
+        }.get(view, ("", "first_seen DESC"))
         rows = conn.execute(
             f"""SELECT uid, site, title, url, price, area, location, description,
-                       status, favorite, first_seen, last_seen, last_price
-                FROM listings {where} ORDER BY first_seen DESC LIMIT ?""",
+                       status, favorite, clicked_at, first_seen, last_seen, last_price
+                FROM listings {where} ORDER BY {order} LIMIT ?""",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -97,6 +101,16 @@ def set_favorite(path: str, uid: str, favorite: bool) -> bool:
     with _connect(path) as conn:
         cur = conn.execute(
             "UPDATE listings SET favorite = ? WHERE uid = ?", (1 if favorite else 0, uid)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def mark_clicked(path: str, uid: str) -> bool:
+    """Registra que o link do anúncio foi aberto (sobrescreve com o clique mais recente)."""
+    with _connect(path) as conn:
+        cur = conn.execute(
+            "UPDATE listings SET clicked_at = ? WHERE uid = ?", (time.time(), uid)
         )
         conn.commit()
         return cur.rowcount > 0

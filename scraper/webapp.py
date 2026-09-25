@@ -12,7 +12,7 @@ from flask import Flask, Response, request, jsonify
 
 from config import DB_PATH, CRITERIA
 from scraper.storage import (
-    get_all_listings, set_status, set_favorite,
+    get_all_listings, set_status, set_favorite, mark_clicked,
     get_excluded_bairros, set_bairro_excluded,
     get_last_new_uids, try_start_run, finish_run,
 )
@@ -296,6 +296,7 @@ PAGE_TMPL = """<!doctype html>
   <div class="tabs">
     <a class="tab-link{tab_all_active}" href="/">Todos</a>
     <a class="tab-link{tab_fav_active}" href="/favoritos">★ Favoritos</a>
+    <a class="tab-link{tab_clicked_active}" href="/abertos">↗ Abertos</a>
   </div>
   <button id="btn-force-run">🔄 Forçar nova busca agora</button>
   <div class="toggle-row" id="force-run-status"></div>
@@ -315,10 +316,10 @@ PAGE_TMPL = """<!doctype html>
       </select>
     </div>
     <label class="toggle-row">
-      <input type="checkbox" id="f-hide-dismissed" checked> ocultar "não interessa"
+      <input type="checkbox" id="f-show-dismissed" autocomplete="off"> mostrar "não interessa" (<span id="dismissed-count">0</span>)
     </label>
     <label class="toggle-row">
-      <input type="checkbox" id="f-only-new"> mostrar somente novos 🆕
+      <input type="checkbox" id="f-only-new" autocomplete="off"> mostrar somente novos 🆕
     </label>
     <div class="excluded-panel">
       <div class="toggle-row" style="margin-bottom:0">bairros excluídos:</div>
@@ -364,7 +365,8 @@ PAGE_TMPL = """<!doctype html>
   const fMin = document.getElementById('f-min');
   const fMax = document.getElementById('f-max');
   const fBairro = document.getElementById('f-bairro');
-  const fHideDismissed = document.getElementById('f-hide-dismissed');
+  const fShowDismissed = document.getElementById('f-show-dismissed');
+  const dismissedCount = document.getElementById('dismissed-count');
   const fOnlyNew = document.getElementById('f-only-new');
   const fGroup = document.getElementById('f-group');
   const countLabel = document.getElementById('count-label');
@@ -441,7 +443,8 @@ PAGE_TMPL = """<!doctype html>
     const min = parseFloat(fMin.value) || 0;
     const max = parseFloat(fMax.value) || Infinity;
     const bairro = fBairro.value;
-    const hideDismissed = fHideDismissed.checked;
+    const showDismissed = fShowDismissed.checked;
+    let nDismissed = 0;
     const onlyNew = fOnlyNew.checked;
     const visibleCards = [];
     cardsEl.forEach(c => {{
@@ -450,15 +453,19 @@ PAGE_TMPL = """<!doctype html>
       const status = c.dataset.status || '';
       const isNew = c.dataset.new === '1';
       let ok = price >= min && price <= max && (!bairro || cBairro === bairro);
-      if (hideDismissed && status === 'dismissed') ok = false;
+      if (status === 'dismissed') {{
+        nDismissed++;
+        if (!showDismissed) ok = false;
+      }}
       if (onlyNew && !isNew) ok = false;
       c.style.display = ok ? 'block' : 'none';
       if (ok) visibleCards.push(c);
     }});
+    dismissedCount.textContent = nDismissed;
     countLabel.textContent = visibleCards.length + ' de ' + cardsEl.length + ' terrenos';
     regroup(visibleCards);
   }}
-  [fMin, fMax, fBairro, fHideDismissed, fOnlyNew, fGroup].forEach(
+  [fMin, fMax, fBairro, fShowDismissed, fOnlyNew, fGroup].forEach(
     el => el.addEventListener('input', applyFilters)
   );
   applyFilters();
@@ -480,6 +487,17 @@ PAGE_TMPL = """<!doctype html>
         headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify({{uid, favorite}}),
       }});
+    }} catch (e) {{ console.error(e); }}
+  }}
+
+  function markClicked(uid) {{
+    // sendBeacon sobrevive à troca de aba/navegação; fetch keepalive como fallback
+    const body = new Blob([JSON.stringify({{uid}})], {{type: 'application/json'}});
+    try {{
+      if (!(navigator.sendBeacon && navigator.sendBeacon('/api/click', body))) {{
+        fetch('/api/click', {{method: 'POST', body, keepalive: true,
+          headers: {{'Content-Type': 'application/json'}}}});
+      }}
     }} catch (e) {{ console.error(e); }}
   }}
 
@@ -543,6 +561,10 @@ PAGE_TMPL = """<!doctype html>
   const modalDismiss = document.getElementById('modal-dismiss');
   const modalExclude = document.getElementById('modal-exclude');
   let modalCard = null;
+
+  modalVisit.addEventListener('click', () => {{
+    if (modalCard) markClicked(modalCard.dataset.uid);
+  }});
 
   function openModal(card) {{
     modalCard = card;
@@ -636,8 +658,8 @@ PAGE_TMPL = """<!doctype html>
 """
 
 
-def render_page(favorites_only: bool) -> str:
-    listings = get_all_listings(DB_PATH, favorites_only=favorites_only)
+def render_page(view: str = "all") -> str:
+    listings = get_all_listings(DB_PATH, view=view)
     excluded_bairros = get_excluded_bairros(DB_PATH)
     excluded_set = {b.lower() for b in excluded_bairros}
     new_uids = set(get_last_new_uids(DB_PATH))
@@ -660,7 +682,10 @@ def render_page(favorites_only: bool) -> str:
         excluded_chips = '<span class="chips-empty">nenhum</span>'
 
     if not visible_listings:
-        empty_msg = "Nenhum favorito ainda." if favorites_only else "Nenhum terreno encontrado ainda."
+        empty_msg = {
+            "favorites": "Nenhum favorito ainda.",
+            "clicked": "Nenhum anúncio aberto ainda.",
+        }.get(view, "Nenhum terreno encontrado ainda.")
         cards_html = f'<div class="empty">{empty_msg}</div>'
     else:
         parts = []
@@ -691,7 +716,10 @@ def render_page(favorites_only: bool) -> str:
                     new_badge='<span class="new-badge">NOVO</span>' if is_new else "",
                     price_short=esc(fmt_money_short(price_val)),
                     area=esc(fmt_area(l["area"])),
-                    date=esc(fmt_date(l["first_seen"])),
+                    date=esc(
+                        "aberto " + fmt_date(l["clicked_at"]) if view == "clicked"
+                        else fmt_date(l["first_seen"])
+                    ),
                 )
             )
         cards_html = "\n".join(parts)
@@ -705,19 +733,25 @@ def render_page(favorites_only: bool) -> str:
         cards=cards_html,
         bairro_options=bairro_options,
         excluded_chips=excluded_chips,
-        tab_all_active="" if favorites_only else " active",
-        tab_fav_active=" active" if favorites_only else "",
+        tab_all_active=" active" if view == "all" else "",
+        tab_fav_active=" active" if view == "favorites" else "",
+        tab_clicked_active=" active" if view == "clicked" else "",
     )
 
 
 @app.route("/")
 def report():
-    return Response(render_page(favorites_only=False), mimetype="text/html")
+    return Response(render_page("all"), mimetype="text/html")
 
 
 @app.route("/favoritos")
 def favoritos():
-    return Response(render_page(favorites_only=True), mimetype="text/html")
+    return Response(render_page("favorites"), mimetype="text/html")
+
+
+@app.route("/abertos")
+def abertos():
+    return Response(render_page("clicked"), mimetype="text/html")
 
 
 @app.route("/api/exclude-bairro", methods=["POST"])
@@ -752,6 +786,16 @@ def api_favorite():
     if not uid:
         return jsonify({"ok": False, "error": "uid obrigatório"}), 400
     ok = set_favorite(DB_PATH, uid, favorite)
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/click", methods=["POST"])
+def api_click():
+    data = request.get_json(silent=True) or {}
+    uid = data.get("uid", "")
+    if not uid:
+        return jsonify({"ok": False, "error": "uid obrigatório"}), 400
+    ok = mark_clicked(DB_PATH, uid)
     return jsonify({"ok": ok})
 
 
