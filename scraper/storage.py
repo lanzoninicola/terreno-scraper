@@ -40,6 +40,7 @@ def init_db(path: str):
     for col, coltype in [
         ("location", "TEXT"), ("description", "TEXT"), ("status", "TEXT"),
         ("favorite", "INTEGER DEFAULT 0"), ("clicked_at", "REAL"),
+        ("visit", "INTEGER DEFAULT 0"),
     ]:
         try:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {coltype}")
@@ -66,10 +67,11 @@ def get_all_listings(path: str, limit: int = 300, view: str = "all") -> list[dic
         where, order = {
             "favorites": ("WHERE favorite = 1", "first_seen DESC"),
             "clicked": ("WHERE clicked_at IS NOT NULL", "clicked_at DESC"),
+            "visits": ("WHERE visit = 1", "first_seen DESC"),
         }.get(view, ("", "first_seen DESC"))
         rows = conn.execute(
             f"""SELECT uid, site, title, url, price, area, location, description,
-                       status, favorite, clicked_at, first_seen, last_seen, last_price
+                       status, favorite, visit, clicked_at, first_seen, last_seen, last_price
                 FROM listings {where} ORDER BY {order} LIMIT ?""",
             (limit,),
         ).fetchall()
@@ -101,6 +103,15 @@ def set_favorite(path: str, uid: str, favorite: bool) -> bool:
     with _connect(path) as conn:
         cur = conn.execute(
             "UPDATE listings SET favorite = ? WHERE uid = ?", (1 if favorite else 0, uid)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def set_visit(path: str, uid: str, visit: bool) -> bool:
+    with _connect(path) as conn:
+        cur = conn.execute(
+            "UPDATE listings SET visit = ? WHERE uid = ?", (1 if visit else 0, uid)
         )
         conn.commit()
         return cur.rowcount > 0

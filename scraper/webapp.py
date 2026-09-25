@@ -12,7 +12,7 @@ from flask import Flask, Response, request, jsonify
 
 from config import DB_PATH, CRITERIA
 from scraper.storage import (
-    get_all_listings, set_status, set_favorite, mark_clicked,
+    get_all_listings, set_status, set_favorite, set_visit, mark_clicked,
     get_excluded_bairros, set_bairro_excluded,
     get_last_new_uids, try_start_run, finish_run,
 )
@@ -52,19 +52,20 @@ def fmt_date(ts):
 
 CARD_TMPL = """
 <div class="card{priority_class}{new_class}" data-uid="{uid_attr}" data-price="{price_raw}"
-     data-bairro="{bairro_attr}" data-status="{status_attr}" data-favorite="{favorite_attr}"
+     data-bairro="{bairro_attr}" data-status="{status_attr}" data-favorite="{favorite_attr}" data-visit="{visit_attr}"
      data-new="{new_attr}"
      data-title="{title_attr}" data-desc="{desc_attr}" data-site="{site_attr}"
      data-url="{url_attr}" data-price-full="{price_full_attr}" data-area-full="{area_full_attr}"
      data-date-full="{date_attr}">
   {new_badge}
+  <button class="icon-btn btn-dismiss" data-uid="{uid_attr}" title="Não interessa" aria-label="Não interessa">✕</button>
   <div class="card-price">{price_short}</div>
   <div class="card-sub"><span class="card-area">{area}</span> · {date}</div>
   <div class="card-bairro">{bairro}</div>
   <div class="actions">
     <button class="icon-btn btn-fav" data-uid="{uid_attr}" title="Favoritar">☆</button>
+    <button class="icon-btn btn-visit" data-uid="{uid_attr}" title="Quero visitar">📅</button>
     <button class="icon-btn btn-seen" data-uid="{uid_attr}" title="Já visto">👁</button>
-    <button class="icon-btn btn-dismiss" data-uid="{uid_attr}" title="Não interessa">✕</button>
   </div>
 </div>
 """
@@ -87,6 +88,7 @@ PAGE_TMPL = """<!doctype html>
     --off: #4b4f58;
     --fav: #f2994a;
     --new: #56ccf2;
+    --visit: #bb86fc;
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -107,7 +109,7 @@ PAGE_TMPL = """<!doctype html>
   .header-row {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; }}
   h1 {{ margin: 0; font-size: 20px; }}
   .sub {{ color: var(--muted); font-size: 13px; margin: 4px 0 10px; }}
-  .tabs {{ display: flex; gap: 6px; margin-bottom: 10px; }}
+  .tabs {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }}
   .tab-link {{
     color: var(--muted);
     text-decoration: none;
@@ -181,7 +183,7 @@ PAGE_TMPL = """<!doctype html>
   .new-badge {{
     position: absolute;
     top: -7px;
-    right: 8px;
+    left: 8px;
     background: var(--new);
     color: #04181d;
     font-size: 10px;
@@ -190,7 +192,7 @@ PAGE_TMPL = """<!doctype html>
     border-radius: 999px;
     letter-spacing: 0.03em;
   }}
-  .card-price {{ font-size: 20px; font-weight: 700; margin-bottom: 4px; }}
+  .card-price {{ font-size: 20px; font-weight: 700; margin-bottom: 4px; padding-right: 24px; }}
   .card-sub {{ font-size: 12px; color: var(--muted); margin-bottom: 2px; line-height: 1.3; }}
   .card-area {{ font-size: 15px; font-weight: 600; color: var(--text); }}
   .card-bairro {{ font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.3; min-height: 1.3em;
@@ -207,8 +209,23 @@ PAGE_TMPL = """<!doctype html>
     line-height: 1;
   }}
   .btn-fav.active {{ border-color: var(--fav); color: var(--fav); }}
+  .btn-visit.active {{ border-color: var(--visit); background: color-mix(in srgb, var(--visit) 18%, transparent); }}
+  #modal-visit-toggle.active {{ border-color: var(--visit); color: var(--visit); }}
   .btn-seen.active {{ border-color: var(--ok); color: var(--ok); }}
-  .btn-dismiss.active {{ border-color: var(--off); color: var(--text); }}
+  .icon-btn.btn-dismiss {{
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    font-size: 14px;
+  }}
+  .btn-dismiss:hover {{ background: var(--border); color: var(--text); }}
+  .btn-dismiss.active {{ background: var(--off); color: var(--text); }}
   .empty {{ color: var(--muted); text-align: center; padding: 40px 0; grid-column: 1 / -1; }}
   .count {{ color: var(--muted); font-size: 12px; margin: 4px 0 10px; }}
   .excluded-panel {{ margin-top: 4px; }}
@@ -297,6 +314,7 @@ PAGE_TMPL = """<!doctype html>
     <a class="tab-link{tab_all_active}" href="/">Todos</a>
     <a class="tab-link{tab_fav_active}" href="/favoritos">★ Favoritos</a>
     <a class="tab-link{tab_clicked_active}" href="/abertos">↗ Abertos</a>
+    <a class="tab-link{tab_visits_active}" href="/visitas">📅 Visitas</a>
   </div>
   <button id="btn-force-run">🔄 Forçar nova busca agora</button>
   <div class="toggle-row" id="force-run-status"></div>
@@ -352,6 +370,7 @@ PAGE_TMPL = """<!doctype html>
     <a class="modal-visit-btn" id="modal-visit" target="_blank" rel="noopener">Ver anúncio no site →</a>
     <div class="modal-actions">
       <button class="icon-btn" id="modal-fav">☆ Favoritar</button>
+      <button class="icon-btn" id="modal-visit-toggle">📅 Visitar</button>
       <button class="icon-btn" id="modal-seen">👁 Já visto</button>
       <button class="icon-btn" id="modal-dismiss">✕ Não interessa</button>
     </div>
@@ -386,6 +405,7 @@ PAGE_TMPL = """<!doctype html>
     const favBtn = card.querySelector('.btn-fav');
     favBtn.classList.toggle('active', fav);
     favBtn.textContent = fav ? '★' : '☆';
+    card.querySelector('.btn-visit').classList.toggle('active', card.dataset.visit === '1');
   }}
   cardsEl.forEach(updateButtons);
 
@@ -490,6 +510,16 @@ PAGE_TMPL = """<!doctype html>
     }} catch (e) {{ console.error(e); }}
   }}
 
+  async function setVisit(uid, visit) {{
+    try {{
+      await fetch('/api/visit', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{uid, visit}}),
+      }});
+    }} catch (e) {{ console.error(e); }}
+  }}
+
   function markClicked(uid) {{
     // sendBeacon sobrevive à troca de aba/navegação; fetch keepalive como fallback
     const body = new Blob([JSON.stringify({{uid}})], {{type: 'application/json'}});
@@ -534,6 +564,13 @@ PAGE_TMPL = """<!doctype html>
         applyFilters();
         return;
       }}
+      if (iconBtn.classList.contains('btn-visit')) {{
+        const nextVisit = card.dataset.visit !== '1';
+        card.dataset.visit = nextVisit ? '1' : '0';
+        updateButtons(card);
+        setVisit(uid, nextVisit);
+        return;
+      }}
       const current = card.dataset.status || '';
       const clicked = iconBtn.classList.contains('btn-seen') ? 'seen' : 'dismissed';
       const next = current === clicked ? '' : clicked;
@@ -557,6 +594,7 @@ PAGE_TMPL = """<!doctype html>
   const modalDesc = document.getElementById('modal-desc');
   const modalVisit = document.getElementById('modal-visit');
   const modalFav = document.getElementById('modal-fav');
+  const modalVisitToggle = document.getElementById('modal-visit-toggle');
   const modalSeen = document.getElementById('modal-seen');
   const modalDismiss = document.getElementById('modal-dismiss');
   const modalExclude = document.getElementById('modal-exclude');
@@ -593,6 +631,9 @@ PAGE_TMPL = """<!doctype html>
     const fav = modalCard.dataset.favorite === '1';
     modalFav.textContent = fav ? '★ Favorito' : '☆ Favoritar';
     modalFav.classList.toggle('active', fav);
+    const visit = modalCard.dataset.visit === '1';
+    modalVisitToggle.textContent = visit ? '📅 Na lista' : '📅 Visitar';
+    modalVisitToggle.classList.toggle('active', visit);
     modalSeen.classList.toggle('active', status === 'seen');
     modalDismiss.classList.toggle('active', status === 'dismissed');
   }}
@@ -608,6 +649,14 @@ PAGE_TMPL = """<!doctype html>
     updateModalButtons();
     setFavorite(modalCard.dataset.uid, nextFav);
     applyFilters();
+  }});
+  modalVisitToggle.addEventListener('click', () => {{
+    if (!modalCard) return;
+    const nextVisit = modalCard.dataset.visit !== '1';
+    modalCard.dataset.visit = nextVisit ? '1' : '0';
+    updateButtons(modalCard);
+    updateModalButtons();
+    setVisit(modalCard.dataset.uid, nextVisit);
   }});
   modalSeen.addEventListener('click', () => {{
     if (!modalCard) return;
@@ -685,6 +734,7 @@ def render_page(view: str = "all") -> str:
         empty_msg = {
             "favorites": "Nenhum favorito ainda.",
             "clicked": "Nenhum anúncio aberto ainda.",
+            "visits": "Nenhuma visita marcada ainda.",
         }.get(view, "Nenhum terreno encontrado ainda.")
         cards_html = f'<div class="empty">{empty_msg}</div>'
     else:
@@ -705,6 +755,7 @@ def render_page(view: str = "all") -> str:
                     bairro=esc(bairro),
                     status_attr=esc(l.get("status") or ""),
                     favorite_attr=1 if l.get("favorite") else 0,
+                    visit_attr=1 if l.get("visit") else 0,
                     new_attr=1 if is_new else 0,
                     title_attr=esc(l["title"]),
                     desc_attr=esc(description),
@@ -736,6 +787,7 @@ def render_page(view: str = "all") -> str:
         tab_all_active=" active" if view == "all" else "",
         tab_fav_active=" active" if view == "favorites" else "",
         tab_clicked_active=" active" if view == "clicked" else "",
+        tab_visits_active=" active" if view == "visits" else "",
     )
 
 
@@ -786,6 +838,22 @@ def api_favorite():
     if not uid:
         return jsonify({"ok": False, "error": "uid obrigatório"}), 400
     ok = set_favorite(DB_PATH, uid, favorite)
+    return jsonify({"ok": ok})
+
+
+@app.route("/visitas")
+def visitas():
+    return Response(render_page("visits"), mimetype="text/html")
+
+
+@app.route("/api/visit", methods=["POST"])
+def api_visit():
+    data = request.get_json(silent=True) or {}
+    uid = data.get("uid", "")
+    visit = bool(data.get("visit"))
+    if not uid:
+        return jsonify({"ok": False, "error": "uid obrigatório"}), 400
+    ok = set_visit(DB_PATH, uid, visit)
     return jsonify({"ok": ok})
 
 
